@@ -1,21 +1,42 @@
 class Rambler {
 
-  constructor(words, opts = {}) {
-    this.initial = words; // const
+  constructor(sources, state) {
+    this.state = state;
+    this.sources = sources;
+    this.ignores = defaultIgnores;
+    this.stops = defaultStopWords;
+    this.destination = state.destination;
+    this.outgoing = state.outgoing;
+    this.repIds = this.replaceableIndexes();
+    this.history = {rural: [], urban: []};
+    Object.keys(this.history, k => this.sources[k].map(w => [w]));
+    console.log(this.wordsFromHistory('rural'));
+    /* this.history.rural = this.sources.rural.map(w => [w]);
+    this.history.urban = this.sources.urban.map(w => [w]); */
+    /* this.initial = words; // const
     this.words = this.initial.slice();
     this.name = opts.name || 'Rambler';
     this.history = this.words.map(w => [w]);
     this.pos = opts.pos || RiTa.pos(this.words);
     this.ignores = opts.ignores || defaultIgnores;
     this.stops = opts.stopWords || defaultStopWords;
-    this.repIds = opts.replaceableIndexes || this.replaceableIndexes();
+    this.repIds = this.replaceableIndexes(); */
   }
 
   // ---------------------- API -------------------------
 
+  wordsFromHistory(text) { // last from each history array
+    return this.history[text].map(a => a[a.length-1]);
+  }
+
   /* take one step either outgoing or incoming */
-  step(outgoing, idx) {
-    return outgoing ? this.replace(idx) : this.restore(idx);
+  step() {
+    /* let idxs = RiTa.randomOrdering(this.repIds);
+    for (let i = 0; i < idxs.length; i++) { */
+    let replaced = this.replace();
+    //let replaced = this.restore();
+    
+    //if (replaced)
   }
 
   /* total number of replacements made */
@@ -32,8 +53,8 @@ class Rambler {
   }
 
   /* return true if word does not equal its original value */
-  isModified(idx) {
-    return this.words[idx] !== this.initial[idx];
+  isModified(text, idx) {
+    return this.sources[text][idx] !== this.initial[idx];
   }
 
   /* does one new word replacement */
