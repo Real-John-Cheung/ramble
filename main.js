@@ -28,6 +28,7 @@ const state = {
   maxSteps: 50,
   maxLegs: 20,
   reader: 0,
+  loopId: 0,
   legs: 0
 };
 
@@ -38,25 +39,56 @@ ramble();
 ////////////////////////////////////////////////////////
 
 function ramble() {
-  replace();
-  updateInfo();
+
+  state.outgoing ? replace() : restore();
+  updateState();
 
   if (!state.stepDebug) {
     if (!state.reader) {
       state.reader = new Reader(domDisplay);
       state.reader.start();
     }
-    setTimeout(ramble, state.updateDelay); // loop
+    if (state.updating) {
+      loopId = setTimeout(ramble, state.updateDelay); // loop
+    }
   }
 }
 
+
+/* logic for steps, legs and domain swapping */
+function updateState() {
+
+  const { maxSteps, legs, maxLegs } = state;
+
+  let steps = numMods();
+  if (state.outgoing) {
+    if (steps >= maxSteps) {
+      if (++state.legs >= maxLegs) return stop();
+      console.log(`Reverse: incoming in `
+        + `"urban" after leg #${legs + 1}.\n`);
+      state.outgoing = false;
+      state.destination = 'urban'; // swap dest
+    }
+  }
+  else {   // incoming
+    if (steps === 0) {
+      if (++state.legs >= maxLegs) return stop();
+      console.log(`Reverse: outgoing in `
+        + `"urban" after leg #${legs + 1}.\n`);
+      //if (state.destination === 'urban') return stop();
+      state.outgoing = true;
+    }
+  }
+  updateInfo();
+}
+
+/* selects an index with which to replace a word in each text */
 function replace() {
 
   const { outgoing, destination } = state;
 
   let choices = RiTa.randomOrdering(repIds);
-  let displayText = destination;
-  let shadowText = shadowTextName();
+  let shadow = shadowTextName();
   let startMs = +new Date();
 
   for (let i = 0; i < choices.length; i++) {
@@ -64,12 +96,12 @@ function replace() {
     let idx = choices[i];
     let pos = sources.pos[idx];
 
-    let word1 = sources[displayText][idx];
-    if (!word1) throw Error('Replace Error: ' + displayText
+    let word1 = sources[destination][idx];
+    if (!word1) throw Error('Replace Error: ' + destination // tmp-remove
       + ' for index=' + idx + '\n' + JSON.stringify(choices));
 
-    let word2 = sources[shadowText][idx];
-    if (!word2) throw Error('Replace Error: ' + shadowText
+    let word2 = sources[shadow][idx];
+    if (!word2) throw Error('Replace Error: ' + shadow // tmp-remove
       + ' for index=' + idx + '\n' + JSON.stringify(choices));
 
     // get similars for both words
@@ -79,20 +111,57 @@ function replace() {
 
     // pick a random similar to replace in display text
     let next1 = RiTa.random(sims1);
-    history[displayText][idx].push(next1);
+    history[destination][idx].push(next1);
     updateDOM(next1, idx);
 
     // pick a random similar to replace in hidden text
     let next2 = RiTa.random(sims1);
-    history[shadowText][idx].push(next2);
+    history[shadow][idx].push(next2);
 
     let ms = +new Date() - startMs; // tmp: for perf
     console.log(`${numMods()}${outgoing ? ')' : ']'} @${idx} `
-      + `${displayText}: ${word1} -> ${next1}, ${shadowText}: `
+      + `${destination}: ${word1} -> ${next1}, ${shadow}: `
       + `${word2} -> ${next2} [${pos}] ${outgoing ? ms + 'ms' : ''}`);
 
     break; // done
   }
+}
+
+/* selects an index with to restore (from history) in displayed text */
+function restore() {
+
+  const { outgoing, destination } = state;
+
+  let displayWords = unspanify();
+  
+  // get all possible restorations
+  let choices = repIds
+    .map(idx => ({ idx, word: displayWords[idx] }))
+    .filter(({ word, idx }) => history[destination][idx].length > 1
+      && isReplaceable(word));
+
+  if (!choices.length) { // tmp remove
+    console.error('[FAIL] No choices: '+displayWords);
+    return;
+  }
+
+  // pick a changed word to step back
+  let { word, idx } = RiTa.random(choices);
+
+  let pos = sources.pos[idx];
+  let hist = history[destination][idx];
+
+  // select newest from history
+  hist.pop();
+  let next = hist[hist.length - 1];
+
+  history[shadowTextName()][idx].pop(); // stay in sync?
+
+  // do replacement
+  updateDOM(next, idx);
+  console.log(`${numMods()}${outgoing ? ')' : ']'} @${idx} `
+    + `${destination}: ${word} -> ${next} [${pos}]`
+    + ` ${outgoing ? ms + 'ms' : ''}`);
 }
 
 /* compute the affinity over 2 text arrays for a set of word-ids */
@@ -106,10 +175,17 @@ function affinity(textA, textB, idsToCheck) {
   return fmt;
 }
 
-/* total number of replacements made */
+/* total number of replacements made in display text */
 function numMods() {
   return repIds.reduce((total, idx) =>
     total + history[state.destination][idx].length - 1, 0);
+}
+
+/* stop rambler and reader  */
+function stop() {
+  clearTimeout(state.loopId);
+  state.updating = false;
+  state.reader.stop();
 }
 
 /* update stats in debug panel */
@@ -198,12 +274,14 @@ function updateDOM(next, idx) {
 }
 
 /* words without similars in sources texts:
-  
+
   "avoid"/vb
   "every"/dt
   "sometimes"/rb
-  
+  "adventure"/nn
+  "inhuman"/jj
+
   "neighbors"/nn (should be nns? - fixed)
   "when"/wrb  (added as stop-word)
   "their"/prp$  (added as stop-word)
-*/ 
+*/
